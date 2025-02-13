@@ -1,0 +1,6 @@
+/newDS/mask/Image_0000/0000_01_occluder_24.png
+/newDS/mask/Image_0000/0000_01_occludee_24.png
+/newDS/mask/Image_0000/0000_02_occludee_15.png
+/newDS/mask/Image_0000/0000_02_occluder_15.png
+/newDS/mask/Image_0000/0000_03_occludee_0.png
+/newDS/mask/Image_0000/0000_03_occluder_0.png
