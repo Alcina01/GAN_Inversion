@@ -18,7 +18,6 @@ import models
 import utils
 from models.downsampler import Downsampler
 import matplotlib.pyplot as plt
-import ipdb
 import torchvision.transforms as transforms
 
 
@@ -101,17 +100,15 @@ class DGP(object):
 
     def _prepare_latent(self):
         # import ipdb;ipdb.set_trace
-        num_latents = 100  # Define the size of the latent space
-        self.z = torch.nn.Parameter(torch.randn(num_latents, self.G.dim_z).cuda())  # Learnable latent space
         print("resetting the latent space")
-        # self.z = torch.zeros((1, self.G.dim_z)).normal_().cuda()
+        self.z = torch.zeros((1, self.G.dim_z)).normal_().cuda()
 
-        # self.z = Variable(self.z, requires_grad=True)
+        self.z = Variable(self.z, requires_grad=True)
         self.z_optim = torch.optim.Adam(
-            [{'params': self.z, 'lr': self.z_lrs[0]}],  # Optimizing self.z with learning rate self.z_lrs[0]
-            betas=(self.config['G_B1'], self.config['G_B2']),  # Adam momentum terms (β1, β2)
-            weight_decay=0,  # No L2 regularization
-            eps=1e-8  # Numerical stability
+            [{'params': self.z, 'lr': self.z_lrs[0]}],
+            betas=(self.config['G_B1'], self.config['G_B2']),
+            weight_decay=0,
+            eps=1e-8
         )
         self.y = torch.zeros(1).long().cuda()
 
@@ -135,9 +132,6 @@ class DGP(object):
         self.target = self.pre_process(target, True)
         self.y.fill_(category.item())
         self.img_name = img_path[img_path.rfind('/') + 1:img_path.rfind('.')]
-        # Sample a latent vector from the global latent space
-        self.latent_index = torch.randint(0, self.z.shape[0], (1,)).cuda()  # Choose a latent index
-        self.current_z = self.z[self.latent_index]  # Select the latent vector
         index = i
     
 
@@ -160,11 +154,10 @@ class DGP(object):
                                         self.ft_num[stage], self.lr_ratio[stage])
                 self.z_scheduler.update(curr_step, self.z_lrs[stage])
                 self.z_optim.zero_grad()
-                # import ipdb;ipdb.set_trace()
                 if self.update_G:
                     self.G.optim.zero_grad()
+                x = self.G(self.z, self.G.shared(self.y), use_in=self.use_in[stage])
                 # apply degradation transform
-                x = self.G(self.current_z, self.G.shared(self.y), use_in=self.use_in[stage])
                 x_map = self.pre_process(x, False)
 
                 # calculate losses in the degradation space
@@ -274,36 +267,24 @@ class DGP(object):
                 #-----------------------------------------------------
                 # loss = full_loss * 0.5 + nll * self.config['w_nll']      # Original Loss
                 # loss =masked_loss + nll * self.config['w_nll']                            # Masked area Loss
-                # loss = full_loss * 0.7 + masked_loss *0.5 + nll * self.config['w_nll']    # Hybrid Loss
-                loss = full_loss
+                loss = full_loss * 0.7 + masked_loss *0.5 + nll * self.config['w_nll']    # Hybrid Loss
 
-                print("doing backward step")
+
                 loss.backward()
-                print('done baclward step')
                 self.z_optim.step()
                 if self.update_G:
                     self.G.optim.step()
 
                 # These losses are calculated in the [-1,1] image scale
                 # We record the rescaled MSE and L1 loss, corresponding to [0,1] image scale
-                # loss_dict = {
-                #     'ftr_loss': ftr_loss.,
-                #     'nll': nll,
-                #     'mse_loss': mse_loss / 4,
-                #     'l1_loss': l1_loss / 2 ,
-                #     'masked_mse_loss' : masked_mse_loss,
-                #     'BB_ssim' : ssim,
-                #     'full_ssim' : full_ssim
-
-                # }
                 loss_dict = {
-                    'ftr_loss': 0,
-                    'nll': 0,
-                    'mse_loss': 0 / 4,
-                    'l1_loss': 0 / 2 ,
-                    'masked_mse_loss' : 0,
-                    'BB_ssim' : 0,
-                    'full_ssim' : 0
+                    'ftr_loss': ftr_loss,
+                    'nll': nll,
+                    'mse_loss': mse_loss / 4,
+                    'l1_loss': l1_loss / 2 ,
+                    'masked_mse_loss' : masked_mse_loss,
+                    'BB_ssim' : ssim,
+                    'full_ssim' : full_ssim
 
                 }
 
@@ -364,7 +345,6 @@ class DGP(object):
         return loss_dict
 
     def select_z(self, select_y=False):
-        print(f"selecting z")
         with torch.no_grad():
             if self.select_num == 0:
                 self.z.zero_()
@@ -379,14 +359,11 @@ class DGP(object):
             self.criterion.set_ftr_num(3)
             for i in range(self.select_num):
                 self.z.normal_(mean=0, std=self.config['sample_std'])
-                idx = torch.randint(0, self.z.shape[0], (1,))  # Pick a random latent index
-                z_sample = self.z[idx]  # Select a global latent
                 z_all.append(self.z.cpu())
                 if select_y:
                     self.y.random_(0, self.config['n_classes'])
                     y_all.append(self.y.cpu())
-                # x = self.G(self.z, self.G.shared(self.y))
-                x = self.G(z_sample.view(1, -1), self.G.shared(self.y))  # Ensure correct sh
+                x = self.G(self.z, self.G.shared(self.y))
                 x = self.pre_process(x)
                 ftr_loss = self.criterion(self.ftr_net, x, self.target)
                 loss_all.append(ftr_loss.view(1).cpu())
@@ -482,4 +459,3 @@ class DGP(object):
             # metrics['ssim'] = torch.Tensor([ssim]).cuda()
 
             return metrics, x
-
